@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Data.Linq.Mapping;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
@@ -7,22 +8,21 @@ using System.Threading.Tasks;
 namespace RecommenderFramework
 {
     /// <summary>
-    /// Represents attitude a user expressed towards item.
+    /// Represents attitude a user expressed for an item.
     /// </summary>
-    [Serializable]
     public abstract class Feedback
     {
         /// <summary>
         /// Identification of user.
         /// </summary>
-        public int UserId;
+        public abstract int UserId      { get; set; }
         /// <summary>
         /// Identification of item.
         /// </summary>
-        public int ItemId;
-        /// <summary>
+        public abstract int ItemId      { get; set; }
+        /// <summary> 
         /// Timestamp at which feedback was collected.
         /// </summary>
-        public DateTime AtTime;
+        public abstract DateTime AtTime { get; set; }
     }
 }

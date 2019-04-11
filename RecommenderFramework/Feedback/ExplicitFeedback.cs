@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Data.Linq.Mapping;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
@@ -7,14 +8,25 @@ using System.Threading.Tasks;
 namespace RecommenderFramework
 {
     /// <summary>
-    /// Represents a form of feedback where users preference is explicitly known.
+    /// Represents explicit preference a user expressed for an item.
     /// </summary>
-    [Serializable]
+    [Table]
     public sealed class ExplicitFeedback : Feedback
     {
+        /// <inheritdoc />
+        [Column(IsPrimaryKey = true)]        
+        public override int UserId      { get; set; }
+        /// <inheritdoc />
+        [Column(IsPrimaryKey = true)]
+        public override int ItemId      { get; set; }
+        /// <inheritdoc />
+        [Column(IsPrimaryKey = true)]
+        public override DateTime AtTime { get; set; }
+
         /// <summary>
-        /// What is the preference of a user towards item.
+        /// To what extent does the user like the item.
         /// </summary>
-        public float Preference;
+        [Column]
+        public float Preference         { get; set; }
     }
 }

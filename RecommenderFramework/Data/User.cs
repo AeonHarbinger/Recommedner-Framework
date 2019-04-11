@@ -5,15 +5,15 @@ using System.Text;
 using System.Threading.Tasks;
 
 namespace RecommenderFramework
-{   /// <summary>
+{   
+    /// <summary>
     /// Represents a user in recommender system.
     /// </summary>
-    [Serializable]
-    public class User
+    public abstract class User
     {
         /// <summary>
         /// Unique identification of the user.
         /// </summary>
-        public int Id;
+        public abstract int Id { get; set; }
     }
 }

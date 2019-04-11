@@ -1,8 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace RecommenderFramework
 {
@@ -64,28 +62,23 @@ namespace RecommenderFramework
         /// <param name="recommendations">List of recommendations by recommender system.</param>
         /// <param name="preferences">List of actual preferences by users.</param>
         /// <returns>Mean absolute error of recommendations.</returns>
-        public static double MAE(List<RecommendationList> recommendations, List<UserItemPreference> preferences)
+        public static double MAE(IEnumerable<Recommendation> recommendations, Dictionary<UserItemPair, float?> userPref)
         {
             List<UserItemPreference> expected = GetExpectedPreference(recommendations);
-
-            var actual = new Dictionary<UserItemPair, float>();
-            foreach (var item in preferences)
-            {
-                actual.Add(item.UserItem, item.Value);
-            }
-
+            
             double sumAbsDiff = 0;
-            int canCompare = 0;
+            int canCompareCount = 0;
             foreach (var exp in expected)
             {
-                if (actual.TryGetValue(exp.UserItem, out float actualValue))
+                userPref.TryGetValue(new UserItemPair(exp.UserItem.UserId, exp.UserItem.ItemId), out float? actualValue);
+                if (actualValue != null)
                 {
-                    sumAbsDiff += Math.Abs(actualValue - exp.Value);
-                    canCompare++;
+                    sumAbsDiff += Math.Abs((float)actualValue - exp.Value);
+                    canCompareCount++;
                 }
             }
 
-            return sumAbsDiff / canCompare;
+            return sumAbsDiff / canCompareCount;
         }
 
         /// <summary>
@@ -94,23 +87,18 @@ namespace RecommenderFramework
         /// <param name="recommendations">List of recommendations by recommender system.</param>
         /// <param name="preferences">List of actual preferences by users.</param>
         /// <returns>Root mean square error of recommendations.</returns>
-        public static double RMSE(List<RecommendationList> recommendations, List<UserItemPreference> preferences)
+        public static double RMSE(IEnumerable<Recommendation> recommendations, Dictionary<UserItemPair, float?> userPref)
         {
             List<UserItemPreference> expected = GetExpectedPreference(recommendations);
-
-            var actual = new Dictionary<UserItemPair, float>();
-            foreach (var item in preferences)
-            {
-                actual.Add(item.UserItem, item.Value);
-            }
-
+            
             double sumDiffSquared = 0;
             int canCompare = 0;
             foreach (var exp in expected)
             {
-                if (actual.TryGetValue(exp.UserItem, out float expectedValue))
+                userPref.TryGetValue(new UserItemPair(exp.UserItem.UserId, exp.UserItem.ItemId), out float? actualValue);
+                if (actualValue != null)
                 {
-                    sumDiffSquared += Math.Pow(expectedValue - exp.Value, 2);
+                    sumDiffSquared += Math.Pow((float)actualValue - exp.Value, 2);
                     canCompare++;
                 }
             }
@@ -121,36 +109,38 @@ namespace RecommenderFramework
 
         #region Ranking based
         /// <summary>
-        /// Calculates the mean average reciprocal hit rank of recommendations.
+        /// Calculates the mean reciprocal rank of recommendations.
         /// </summary>
         /// <param name="recommendations">List of recommendations by recommender system.</param>
-        /// <param name="IsItemRelevant">Function that tells us whether user finds certain item relevant.</param>
-        /// <returns>Average reciprocal hit rank of recommendations.</returns>
-        public static double ARHR(List<RecommendationList> recommendations, Func<int, int, bool> IsItemRelevant)
+        /// <param name="isItemRelevant">Function that tells us whether user finds certain item relevant.</param>
+        /// <returns>Mean reciprocal rank of recommendations.</returns>
+        public static double MRR(IEnumerable<Recommendation> recommendations, Func<int, int, bool> isItemRelevant)
         {
             var allRanks = new List<int?>();
-            foreach (var recList in recommendations)
+            foreach (var rec in recommendations)
             {
                 int? rank = null;
-                for (int i = 0; i < recList.Items.Count; i++) 
+                for (int i = 0; i < rec.Items.Count; i++) 
                 {
-                    int itemId = recList.Items[i].Item.Id;
-                    if (IsItemRelevant(recList.UserId, itemId))
+                    int itemId = rec.Items[i].Item.Id;
+                    if (isItemRelevant(rec.UserId, itemId))
                     {
                         rank = i + 1;
                         break;
                     }
                 }
+
                 allRanks.Add(rank);
             }
 
             double rankSum = 0;
             foreach (var rank in allRanks)
             {
-                if (rank != null) rankSum += 1.0 / (int)rank;
+                if (rank != null)
+                    rankSum += 1.0 / (int)rank;
             }
 
-            return 1.0 * rankSum / allRanks.Count;
+            return rankSum / allRanks.Count;
         }
 
         /// <summary>
@@ -160,27 +150,22 @@ namespace RecommenderFramework
         /// <param name="preferences">List of actual preferences by users.</param>
         /// <param name="rankPosition">At which rank position will the DCG be calculated.</param>
         /// <returns>Average discounted cumulative gain of recommendations.</returns>
-        public static double AverageDCG(List<RecommendationList> recommendations, List<UserItemPreference> preferences, int rankPosition)
+        public static double AverageDCG (IEnumerable<Recommendation> recommendations, Dictionary<UserItemPair, float?> userPref, int rankPosition)
         {
-            var prefDict = new Dictionary<UserItemPair, float>();
-            foreach (var pref in preferences)
-                prefDict.Add(pref.UserItem, pref.Value);
-
             double sumRecomDCG = 0;
-            foreach (var recList in recommendations)
+            foreach (var rec in recommendations)
             {
                 for (int i = 0; i < rankPosition; i++)
                 {
-                    var uip = new UserItemPair(recList.UserId, recList.Items[i].Item.Id);
-                    if (!prefDict.TryGetValue(uip, out float relevance))
-                        relevance = 0;
+                    userPref.TryGetValue(new UserItemPair(rec.UserId, rec.Items[i].Item.Id), out float? actualValue);
+                    if (actualValue == null)
+                        actualValue = 0;
 
-                    sumRecomDCG += relevance / Math.Log(i + 2, 2);
-                    // sumRecomDCG += (Math.Pow(2, relevance) - 1) / Math.Log(i + 2, 2);
+                    sumRecomDCG += (float)actualValue / Math.Log(i + 2, 2);
                 }
             }
 
-            return sumRecomDCG / recommendations.Count;
+            return sumRecomDCG / recommendations.Count();
         }
 
         /// <summary>
@@ -190,40 +175,36 @@ namespace RecommenderFramework
         /// <param name="preferences">List of actual preferences by users.</param>
         /// <param name="rankPosition">At which rank position will the NDCG be calculated.</param>
         /// <returns>Average normalized discounted cumulative gain of recommendations.</returns>
-        public static double AverageNDCG(List<RecommendationList> recommendations, List<UserItemPreference> preferences, int rankPosition)
+        public static double AverageNDCG(IEnumerable<Recommendation> recommendations, Dictionary<UserItemPair, float?> userPref, int rankPosition)
         {
-            var prefDict = new Dictionary<UserItemPair, float>();
-            foreach (var pref in preferences)
-                prefDict.Add(pref.UserItem, pref.Value);
-
             double sumRecomNDCG = 0;
             int listsWithFeedback = 0;
-            foreach (var recList in recommendations)
+            foreach (var rec in recommendations)
             {
                 double DCG = 0;
                 for (int i = 0; i < rankPosition; i++)
                 {
-                    var uip = new UserItemPair(recList.UserId, recList.Items[i].Item.Id);
-                    if (!prefDict.TryGetValue(uip, out float relevance))
-                        relevance = 0;
+                    userPref.TryGetValue(new UserItemPair(rec.UserId, rec.Items[i].Item.Id), out float? actualValue);
+                    if (actualValue == null)
+                        actualValue = 0;
 
-                    DCG += relevance / Math.Log(i + 2, 2);
+                    DCG += (float)actualValue / Math.Log(i + 2, 2);
                 }
 
                 var sorted = new SortedList<float, UserItemPair>(new CompareFloat());
-                for (int i = 0; i < recList.Items.Count; i++)
+                for (int i = 0; i < rec.Items.Count; i++)
                 {
-                    var uip = new UserItemPair(recList.UserId, recList.Items[i].Item.Id);
-                    if (!prefDict.TryGetValue(uip, out float relevance))
-                        relevance = 0;
-                    sorted.Add(relevance, uip);
+                    userPref.TryGetValue(new UserItemPair(rec.UserId, rec.Items[i].Item.Id), out float? actualValue);
+                    if (actualValue == null)
+                        actualValue = 0;
+
+                    sorted.Add((float)actualValue, new UserItemPair(rec.UserId, rec.Items[i].Item.Id));
                 }
 
                 double IDCG = 0;
                 for (int i = 0; i < rankPosition; i++)
                 {
                     IDCG += sorted.Keys[sorted.Count - i - 1] / Math.Log(i + 2, 2);
-                    // IDCG += (Math.Pow(2, sorted.Keys[sorted.Count - i - 1]]) - 1) / Math.Log(i + 2, 2);
                 }
 
                 if (IDCG != 0)
@@ -243,24 +224,25 @@ namespace RecommenderFramework
         /// </summary>
         /// <param name="recommendations">Recommendations whose response time we are interested in.</param>
         /// <returns>Mean response time in miliseconds.</returns>
-        public static double MeanResponseTime(List<RecommendationList> recommendations)
+        public static double MeanResponseTime(IEnumerable<Recommendation> recommendations)
         {
-            if (recommendations.Count == 0) return double.NaN;
-            else return recommendations.Average(list => list.ResponseTimeMs);
+            if (recommendations.Count() == 0) return double.NaN;
+            else return recommendations.Average(list => list.ResponseTime);
         }
+
         /// <summary>
         /// Caclulates the median response time of recommendations.
         /// </summary>
         /// <param name="recommendations">Recommendations whose response time we are interested in.</param>
         /// <returns>Median response time in miliseconds.</returns>
-        public static double MedianResponseTime(List<RecommendationList> recommendations)
+        public static double MedianResponseTime(IEnumerable<Recommendation> recommendations)
         {
-            if (recommendations.Count == 0) return double.NaN;
+            if (recommendations.Count() == 0) return double.NaN;
             else
             {
                 List<int> times = new List<int>();
                 foreach (var list in recommendations)
-                    times.Add(list.ResponseTimeMs);
+                    times.Add(list.ResponseTime);
                 times.Sort();
 
                 int count = times.Count;
@@ -277,17 +259,19 @@ namespace RecommenderFramework
         /// <param name="recommendations">List of recommendations by recommender system.</param>
         /// <param name="feedback">List of feedback given to recommender system.</param>
         /// <returns>Click through rate of recommendations.</returns>
-        public static double CTR(List<RecommendationList> recommendations, List<Feedback> feedback)
+        public static double CTR(IEnumerable<Recommendation> recommendations, List<Feedback> feedback)
         {
-            var filteredFeedback = new List<Feedback>();
+            var filteredFeedback = new HashSet<UserItemPair>();
             foreach (var feed in feedback)
-                if (feed is ImplicitFeedback && ((ImplicitFeedback)feed).Type == "ClickOnRecommendation") filteredFeedback.Add(feed);
+                if (feed is ClickOnRecommendation)
+                    filteredFeedback.Add(new UserItemPair(feed.UserId, feed.ItemId));
 
-            long recCount = 0;
-            foreach (var recList in recommendations)
-                recCount += recList.Items.Count;
+            var recCount = new HashSet<UserItemPair>();
+            foreach (var rec in recommendations)
+                foreach (var item in rec.Items)
+                    recCount.Add(new UserItemPair(rec.UserId, item.Item.Id));
 
-            return 1.0 * filteredFeedback.Count / recCount;
+            return 1.0 * filteredFeedback.Count / recCount.Count;
         }
 
         /// <summary>
@@ -296,12 +280,12 @@ namespace RecommenderFramework
         /// <param name="users">List of all users.</param>
         /// <param name="system">System to be tested.</param>
         /// <returns>Portion of users for which some rating can be predicted.</returns>
-        public static double UserCoverage(List<User> users, IRecommenderSystem system)
+        public static double UserCoverage(IEnumerable<User> users, IRecommenderSystem system)
         {
-            int canProvide = 0;
+            int canPredict = 0;
             foreach (var user in users)
-                if (system.CanPredictForUser(user)) canProvide++;
-            return 1.0 * canProvide / users.Count;
+                if (system.CanRecommendToUser(user)) canPredict++;
+            return 1.0 * canPredict / users.Count();
         }
         /// <summary>
         /// Calculates what portion of items can the system predict rating for.
@@ -309,21 +293,21 @@ namespace RecommenderFramework
         /// <param name="items">List of all items.</param>
         /// <param name="system">System to be tested.</param>
         /// <returns>Portion of items for which some rating can be predicted.</returns>
-        public static double ItemCoverage(List<Item> items, IRecommenderSystem system)
+        public static double ItemCoverage(IEnumerable<Item> items, IRecommenderSystem system)
         {
-            int canProvide = 0;
+            int canPredict = 0;
             foreach (var item in items)
-                if (system.CanPredictForItem(item)) canProvide++;
-            return 1.0 * canProvide / items.Count;
+                if (system.CanRecommendItem(item)) canPredict++;
+            return 1.0 * canPredict / items.Count();
         }
 
         /// <summary>
         /// Calculates the average diversity of items of within one recommendation.
         /// </summary>
         /// <param name="recommendations">List of recommendations by recommender system.</param>
-        /// <param name="difference">Function that tells us how much two items differ.</param>
+        /// <param name="differenceOfItems">Function that tells us how much two items differ.</param>
         /// <returns>Average diversity of a recommendation list.</returns>
-        public static double AverageListDiversity(List<RecommendationList> recommendations, Func<Item, Item, double> difference)
+        public static double Diversity(IEnumerable<Recommendation> recommendations, Func<Item, Item, double> differenceOfItems)
         {
             double sumAllListDiversity = 0;
 
@@ -333,12 +317,13 @@ namespace RecommenderFramework
 
                 for (int i = 0; i < list.Items.Count; i++)
                     for (int j = i + 1; j < list.Items.Count; j++)
-                        sumThisListDiversity += difference(list.Items[i].Item, list.Items[j].Item);
+                        sumThisListDiversity += differenceOfItems(list.Items[i].Item, list.Items[j].Item);
 
-                sumAllListDiversity += sumThisListDiversity / NumberOfPairs(list.Items.Count);
+                int n = list.Items.Count;
+                sumAllListDiversity += sumThisListDiversity / (1.0 * n * (n - 1) / 2);
             }
 
-            return sumAllListDiversity / recommendations.Count;
+            return sumAllListDiversity / recommendations.Count();
         }
         #endregion
 
@@ -347,116 +332,95 @@ namespace RecommenderFramework
         /// Calculates the recall of recommendations.
         /// </summary>
         /// <param name="recommendations">List of recommendations by recommender system.</param>
-        /// <param name="GetRelevantItems">Function that retrieves all items relevant to a user.</param>
+        /// <param name="usersRelevantItems">Function that retrieves all items relevant to a user.</param>
         /// <returns>Recall of recommendations.</returns>
-        public static double Recall(List<RecommendationList> recommendations, Func<int, List<int>> GetRelevantItems)
+        public static double Recall   (IEnumerable<Recommendation> recommendations, Func<int, List<int>> usersRelevantItems)
         {
-            var recommendedItemsToUser = new Dictionary<int, HashSet<int>>();
-            foreach (var recList in recommendations)
-            {
-                if (!recommendedItemsToUser.TryGetValue(recList.UserId, out HashSet<int> set))
-                {
-                    set = new HashSet<int>();
-                    recommendedItemsToUser.Add(recList.UserId, set);
-                }
+            Dictionary<int, HashSet<int>> recommendedToUser = GetRecommendedToUser(recommendations);
 
-                foreach (var recItem in recList.Items)
-                {
-                    set.Add(recItem.Item.Id);
-                }
+            double relevanceSum = 0;
+            foreach (var userId in recommendedToUser.Keys)
+            {
+                HashSet<int> recItems = recommendedToUser[userId];
+                List<int> relevItems = usersRelevantItems(userId);
+
+                int relevant = relevItems.Count;
+                int relevantAndRecommended = recItems.Intersect(relevItems).Count();
+
+                relevanceSum += 1.0 * relevantAndRecommended / relevant;
             }
 
-            int relevant = 0;
-            int relevantAndRecommended = 0;
-            foreach (var userId in recommendedItemsToUser.Keys)
-            {
-                HashSet<int> recItems = recommendedItemsToUser[userId];
-                List<int> relevItems = GetRelevantItems(userId);
-                relevant += relevItems.Count;
-                relevantAndRecommended += recItems.Intersect(relevItems).Count();
-            }
-
-            return 1.0 * relevantAndRecommended / relevant;
+            return relevanceSum / recommendedToUser.Count;
         }
 
         /// <summary>
         /// Calculates the accuracy of recommendations.
         /// </summary>
         /// <param name="recommendations">List of recommendations by recommender system.</param>
-        /// <param name="GetRelevantItems">Function that retrieves all items relevant to a user.</param>
+        /// <param name="usersRelevantItems">Function that retrieves all items relevant to a user.</param>
         /// <param name="numberOfItems">Total number of items.</param>
         /// <returns>Accuracy of recommendations.</returns>
-        public static double Accuracy(List<RecommendationList> recommendations, Func<int, List<int>> GetRelevantItems, int numberOfItems)
+        public static double Accuracy (IEnumerable<Recommendation> recommendations, Func<int, List<int>> usersRelevantItems, int numberOfItems)
         {
-            // TODO Make own method for some of this code, reuse.
+            Dictionary<int, HashSet<int>> recommendedToUser = GetRecommendedToUser(recommendations);
 
-            var recommendedItemsToUser = new Dictionary<int, HashSet<int>>();
-            foreach (var recList in recommendations)
+            if (recommendedToUser.Count == 0)
+                return double.NaN;
+
+            int nonRelevantNotRecommended = 0;
+            int relevantRecommended = 0;
+            foreach (var userId in recommendedToUser.Keys)
             {
-                if (!recommendedItemsToUser.TryGetValue(recList.UserId, out HashSet<int> set))
-                {
-                    set = new HashSet<int>();
-                    recommendedItemsToUser.Add(recList.UserId, set);
-                }
+                HashSet<int> recItems = recommendedToUser[userId];
+                List<int> relevItems = usersRelevantItems(userId);
 
-                foreach (var recItem in recList.Items)
-                {
-                    set.Add(recItem.Item.Id);
-                }
+                nonRelevantNotRecommended += (numberOfItems - recItems.Union(relevItems).Count());
+                relevantRecommended       += recItems.Intersect(relevItems).Count();
             }
 
-            int nonRelevantNonRecommended = 0;
-            int relevantAndRecommended = 0;
-            foreach (var userId in recommendedItemsToUser.Keys)
-            {
-                HashSet<int> recItems = recommendedItemsToUser[userId];
-                List<int> relevItems = GetRelevantItems(userId);
-                nonRelevantNonRecommended += (numberOfItems - recItems.Union(relevItems).Count());
-                relevantAndRecommended += recItems.Intersect(relevItems).Count();
-            }
-
-            return (1.0 * nonRelevantNonRecommended + relevantAndRecommended) / numberOfItems;
+            return (1.0 * nonRelevantNotRecommended + relevantRecommended) / (numberOfItems * recommendedToUser.Count);
         }
 
         /// <summary>
         /// Calculates the precision of recommendations.
         /// </summary>
         /// <param name="recommendations">List of recommendations by recommender system.</param>
-        /// <param name="IsItemRelevant">Function that tells us whether user finds certain item relevant.</param>
+        /// <param name="isItemRelevant">Function that tells us whether user finds certain item relevant.</param>
         /// <returns>Precision of recommendations.</returns>
-        public static double Precision(List<RecommendationList> recommendations, Func<int, int, bool> IsItemRelevant) // TODO Create own delegate with explicit signature.
+        public static double Precision(IEnumerable<Recommendation> recommendations, Func<int, int, bool> isItemRelevant)
         {
-            int countRecommended = 0;
-            int countRelevant = 0;
+            int recommendedCount = 0;
+            int relevantCount    = 0;
 
-            foreach (var recList in recommendations)
-                foreach (var recItem in recList.Items)
+            foreach (var rec in recommendations)
+                foreach (var recItem in rec.Items)
                 {
-                    countRecommended++;
-                    if (IsItemRelevant(recList.UserId, recItem.Item.Id)) countRelevant++;
+                    recommendedCount++;
+                    if (isItemRelevant(rec.UserId, recItem.Item.Id))
+                        relevantCount++;
                 }
 
-            return 1.0 * countRelevant / countRecommended;
+            return 1.0 * relevantCount / recommendedCount;
         }
 
         /// <summary>
         /// Calculates the mean average precision of recommendations.
         /// </summary>
         /// <param name="recommendations">List of recommendations by recommender system.</param>
-        /// <param name="IsItemRelevant">Function that tells us whether user finds certain item relevant.</param>
+        /// <param name="isItemRelevant">Function that tells us whether user finds certain item relevant.</param>
         /// <returns>Mean average precision of recommendations.</returns>
-        public static double MAP(List<RecommendationList> recommendations, Func<int, int, bool> IsItemRelevant)
+        public static double MAP      (IEnumerable<Recommendation> recommendations, Func<int, int, bool> isItemRelevant)
         {
-            var recommendedItemsToUser = new Dictionary<int, List<RecommendationList>>();
-            foreach (var recList in recommendations)
+            var recommendedItemsToUser = new Dictionary<int, List<Recommendation>>();
+            foreach (var rec in recommendations)
             {
-                if (!recommendedItemsToUser.TryGetValue(recList.UserId, out List<RecommendationList> list))
+                if (!recommendedItemsToUser.TryGetValue(rec.UserId, out List<Recommendation> list))
                 {
-                    list = new List<RecommendationList>();
-                    recommendedItemsToUser.Add(recList.UserId, list);
+                    list = new List<Recommendation>();
+                    recommendedItemsToUser.Add(rec.UserId, list);
                 }
 
-                list.Add(recList);
+                list.Add(rec);
             }
 
             int userCount = 0;
@@ -464,7 +428,7 @@ namespace RecommenderFramework
             foreach (var userList in recommendedItemsToUser.Values)
             {
                 userCount++;
-                userPrecissionSum += Precision(userList, IsItemRelevant);
+                userPrecissionSum += Precision(userList, isItemRelevant);
             }
 
             return userPrecissionSum / userCount;
@@ -473,7 +437,7 @@ namespace RecommenderFramework
        
 
 
-        #region Private functions and classes
+        #region Private helper functions and classes
         /// <summary>
         /// Comparer which allows us to store multiple values in sortedlist with the same float key.
         /// </summary>
@@ -488,48 +452,48 @@ namespace RecommenderFramework
         }
 
         /// <summary>
+        /// Returns the items recommended for each user. 
+        /// </summary>
+        /// <param name="recommendations">List of recommendations provided by the system.</param>
+        /// <returns>Set of items recommended to each user.</returns>
+        static Dictionary<int, HashSet<int>> GetRecommendedToUser(IEnumerable<Recommendation> recommendations)
+        {
+            var recommendedToUser = new Dictionary<int, HashSet<int>>();
+            foreach (var rec in recommendations)
+            {
+                if (!recommendedToUser.TryGetValue(rec.UserId, out HashSet<int> set))
+                {
+                    set = new HashSet<int>();
+                    recommendedToUser.Add(rec.UserId, set);
+                }
+
+                foreach (var recItem in rec.Items)
+                    set.Add(recItem.Item.Id);
+            }
+
+            return recommendedToUser;
+        }
+
+        /// <summary>
         /// Given list of recommendations returns the preference of user toward item as expected by recommender.
         /// </summary>
         /// <param name="recommendations">Recommendations with expected preferences.</param>
         /// <returns>List of expected preferences only.</returns>
-        static List<UserItemPreference> GetExpectedPreference(List<RecommendationList> recommendations)
+        static List<UserItemPreference> GetExpectedPreference(IEnumerable<Recommendation> recommendations)
         {
-            var expectedRatings = new List<UserItemPreference>();
+            var expectedPreferences = new List<UserItemPreference>();
             foreach (var list in recommendations)
             {
                 foreach (var rec in list.Items)
                 {
+                    if (rec.ExpectedPreference == null)
+                        continue;
                     UserItemPair uip = new UserItemPair(list.UserId, rec.Item.Id);
-                    expectedRatings.Add(new UserItemPreference(uip, rec.ExpectedPreference));
+                    expectedPreferences.Add(new UserItemPreference(uip, (float)rec.ExpectedPreference));
                 }
             }
 
-            return expectedRatings;
-        }
-
-        /// <summary>
-        /// Returns total number of pairs given number of items can make up.
-        /// </summary>
-        /// <param name="n">Number of items making up pairs.</param>
-        /// <returns>Total number of pairs.</returns>
-        static long NumberOfPairs(int n)
-        {
-            return Factorial(n) / (2 * Factorial(n - 2));
-        }
-
-        /// <summary>
-        /// Returns factorial of given number.
-        /// </summary>
-        /// <param name="n">Number whose factorial will be returned.</param>
-        /// <returns>Factorial of number.</returns>
-        static long Factorial(int n)
-        {
-            if (n < 0) throw new Exception("Factorial cannot be of number smaller than zero.");
-
-            long res = 1;
-            for (int i = 2; i <= n; i++)
-                res *= i;
-            return res;
+            return expectedPreferences;
         }
         #endregion
     }

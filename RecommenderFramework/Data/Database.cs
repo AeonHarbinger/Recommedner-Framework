@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Data.Linq;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
@@ -7,93 +8,122 @@ using System.Threading.Tasks;
 namespace RecommenderFramework
 {
     /// <summary>
-    /// Class containing available data.
+    /// Implementation of a database for recommender service.
     /// </summary>
-    public class Database
+    public class Database : IDatabase
     {
         /// <summary>
-        /// All users.
+        /// Table of users.
         /// </summary>
-        public IDictionary<int, User> Users;
+        public Table<User> Users;
         /// <summary>
-        /// All items.
+        /// Table of items.
         /// </summary>
-        public IDictionary<int, Item> Items;
+        public Table<Item> Items;
         /// <summary>
-        /// Matrix containing float values of known preference for given user towards given item. 
+        /// Tables of Feedback.
         /// </summary>
-        SparseMatrix<float> KnownPreference;
+        public List<Table<Feedback>> Feedback;
 
         /// <summary>
-        /// Creates new instance of database.
+        /// Database containing recommendation data.
         /// </summary>
-        /// <param name="users">All users.</param>
-        /// <param name="items">All items.</param>
-        /// <param name="pref">Known user-to-item preference.</param>
-        public Database(Dictionary<int, User> users, Dictionary<int, Item> items, SparseMatrix<float> pref)
-        { 
-            Users = users;
-            Items = items;
-            KnownPreference = pref;
+        internal DbRecommendationContext RecContext;
+
+        /// <summary>
+        /// Creates new with given table of users, items and feedback. 
+        /// Sets up recommendation tables in specified database (if not available already).
+        /// </summary>
+        /// <param name="conStr">Connection string for the database.</param>
+        /// <param name="users">Table of users.</param>
+        /// <param name="items">Table of items.</param>
+        /// <param name="feedback">Tables of Feedback.</param>
+        public Database(string conStr, Table<User> users, Table<Item> items, List<Table<Feedback>> feedback)
+        {
+            Users    = users;
+            Items    = items;
+            Feedback = feedback;
+
+            RecContext = new DbRecommendationContext(conStr);
         }
 
-        /// <summary>
-        /// Gets a user with given ID.
-        /// </summary>
-        /// <param name="id">ID of the user.</param>
-        /// <returns>User with given ID.</returns>
-        public User GetUser(int id) => Users[id];
-        /// <summary>
-        /// Gets an item with given ID.
-        /// </summary>
-        /// <param name="id">ID of the item.</param>
-        /// <returns>Item with given ID.</returns>
-        public Item GetItem(int id) => Items[id];
+        /// <inheritdoc />
+        public User GetUser(int id) => (from u in Users where u.Id == id select u).FirstOrDefault();
+        /// <inheritdoc />
+        public Item GetItem(int id) => (from i in Items where i.Id == id select i).FirstOrDefault();
 
-        /// <summary>
-        /// Returns whether users preference for an item is known.
-        /// </summary>
-        /// <param name="userId">ID of the user.</param>
-        /// <param name="itemId">ID of the item.</param>
-        /// <returns>True, if users preference for an item is known.</returns>
-        public bool PreferenceIsKnown(int userId, int itemId)
+        /// <inheritdoc />
+        public List<Feedback> GetFeedback(int userId, int itemId)
         {
-            return KnownPreference.Contains(userId, itemId);
-        }
-
-        /// <summary>
-        /// Acesses users preference for an item.
-        /// </summary>
-        /// <param name="userId">ID of the user.</param>
-        /// <param name="itemId">ID of the item.</param>
-        /// <returns>Preference of a user toward given item.</returns>
-        public float this[int userId, int itemId] => KnownPreference[userId, itemId];
-
-        /// <summary>
-        /// Removes all elements from the database.
-        /// </summary>
-        public void Clear()
-        {
-            Users.Clear();
-            Items.Clear();
-            KnownPreference.Clear();
-        }
-
-        /// <summary>
-        /// Returns all items, for which a certain users preference is known.
-        /// </summary>
-        /// <param name="userId">ID of the user.</param>
-        /// <returns>All items, where preference is known and the value of preference.</returns>
-        public Dictionary<int, float> KnownForUser(int userId)
-        {
-            var list = new Dictionary<int, float>();
-            foreach (var item in Items.Values)
+            var userFeedback = new List<Feedback>();
+            foreach (var feedbackTable in Feedback)
             {
-                if (KnownPreference.Contains(userId, item.Id))
-                    list.Add(item.Id, this[userId, item.Id]);
+                var thisf = from f in feedbackTable where f.UserId == userId && f.ItemId == itemId select f;
+                userFeedback.AddRange(thisf);
+            }
+            return userFeedback;
+        }
+        /// <inheritdoc />
+        public List<Feedback> GetUserFeedback(int userId)
+        {
+            var userFeedback = new List<Feedback>();
+            foreach (var feedbackTable in Feedback)
+            {
+                var thisf = from f in feedbackTable where f.UserId == userId select f;
+                userFeedback.AddRange(thisf);
+            }
+            return userFeedback;
+        }
+        /// <inheritdoc />
+        public List<Feedback> GetItemFeedback(int itemId)
+        {
+            var userFeedback = new List<Feedback>();
+            foreach (var feedbackTable in Feedback)
+            {
+                var thisf = from f in feedbackTable where f.ItemId == itemId select f;
+                userFeedback.AddRange(thisf);
+            }
+            return userFeedback;
+        }
+
+        /// <inheritdoc />
+        public void SaveSystemRecommendation(string rsName, string rsVersion, Recommendation rl)
+        {
+            // TODO make thread safe get maxid, increment
+            int maxId = (from r in RecContext.Recommendations select r.Id).Max();
+
+            var dbrl = new DbRecommendation(maxId + 1, rsName, rsVersion, rl);
+            RecContext.Recommendations.InsertOnSubmit(dbrl);
+
+            foreach (var item in rl.Items)
+                RecContext.RecommendedItems.InsertOnSubmit(new DbRecommendedItem(dbrl.Id, item));
+            
+            RecContext.SubmitChanges();
+        }
+        /// <inheritdoc />
+        public List<Recommendation> GetSystemRecommendations(string rsName, string rsVersion)
+        {
+            var listIds = from rl in RecContext.Recommendations where rl.Name == rsName && rl.Version == rsVersion select rl.Id;
+
+            var recommendations = new List<Recommendation>();
+            foreach (var listId in listIds)
+            {
+                DbRecommendation dbList = (from rl in RecContext.Recommendations where rl.Id == listId select rl).First();
+
+                var recItems = new List<RecommendedItem>();
+                var dbItems = from ri in RecContext.RecommendedItems where ri.RecommendationId == listId select ri;
+                foreach (var item in dbItems)
+                {
+                    recItems.Add(new RecommendedItem() {
+                        Item = GetItem(item.ItemId),
+                        ExpectedPreference = item.ExpectedPreference
+                    });
+                }
+
+                recommendations.Add(new Recommendation(dbList.UserId, recItems, dbList.AtTime, dbList.ResponseTime));
             }
 
-            return list;
+            return recommendations;
         }
     }
 }

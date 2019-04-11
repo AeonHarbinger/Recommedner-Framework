@@ -33,6 +33,7 @@
   <ItemGroup>
     <Reference Include="System" />
     <Reference Include="System.Core" />
+    <Reference Include="System.Data.Linq" />
     <Reference Include="System.Xml.Linq" />
     <Reference Include="System.Data.DataSetExtensions" />
     <Reference Include="Microsoft.CSharp" />
@@ -42,19 +43,21 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="Data\Database.cs" />
+    <Compile Include="Data\DbRecommendationContext.cs" />
+    <Compile Include="Data\DbRecommendation.cs" />
+    <Compile Include="Data\DbRecommendedItem.cs" />
     <Compile Include="Data\Item.cs" />
-    <Compile Include="Data\SafeLinkedList.cs" />
-    <Compile Include="Data\SparseMatrix.cs" />
     <Compile Include="Data\User.cs" />
     <Compile Include="Evaluation\Evaluation.cs" />
     <Compile Include="Evaluation\RecommenderSystemTracker.cs" />
+    <Compile Include="Feedback\ClickOnRecommendation.cs" />
     <Compile Include="Feedback\ExplicitFeedback.cs" />
     <Compile Include="Feedback\Feedback.cs" />
-    <Compile Include="Feedback\ImplicitFeedback.cs" />
+    <Compile Include="Interfaces\IDatabase.cs" />
     <Compile Include="Interfaces\IManagedRecommenderSystem.cs" />
     <Compile Include="Interfaces\IRecommenderSystem.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
-    <Compile Include="Recommendation\RecommendationList.cs" />
+    <Compile Include="Recommendation\Recommendation.cs" />
     <Compile Include="Recommendation\RecommendedItem.cs" />
     <Compile Include="SystemManager.cs" />
   </ItemGroup>

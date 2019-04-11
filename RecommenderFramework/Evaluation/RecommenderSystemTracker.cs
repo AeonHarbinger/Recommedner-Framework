@@ -8,48 +8,102 @@ using System.Threading.Tasks;
 
 namespace RecommenderFramework
 {
-    public class RecommenderSystemTracker : MarshalByRefObject, IRecommenderSystem
+    /// <summary>
+    /// Wrapper for recommenders system. Tracks recommendations and feedback.
+    /// </summary>
+    public class RecommenderSystemTracker : IRecommenderSystem
     {
-        /// <summary>
-        /// Function which based on feedback that user gave an item guesses users preference toward item.
-        /// </summary>
-        /// <param name="feedback">List of feedback that user gave an item.</param>
-        /// <returns>Preference guess based on feedback. Null if no meaningful preference can be guessed.</returns>
-        public delegate float? AggregationFunction(List<Feedback> feedback);
         /// <summary>
         /// Function used to guess users preference for an item during evaluation.
         /// </summary>
-        public AggregationFunction Aggregator { private get; set; } = null;
+        public Func<List<Feedback>, float?> Aggregator { private get; set; } = null;
+        public Action<Feedback> AddFeedbackToDatabase  { private get; set; } = null;
 
         /// <summary>
         /// Name of the tracker.
         /// </summary>
-        public string Name { get; }
+        public string Name    => system.Name;
+        /// <summary>
+        /// Version of the tracker.
+        /// </summary>
+        public string Version => system.Version;
 
+        /// <summary>
+        /// Database containing all recommendation service data.
+        /// </summary>
+        readonly Database database;
         /// <summary>
         /// Recommender system which is being tracked.
         /// </summary>
         IRecommenderSystem system;
+
+
         /// <summary>
-        /// All recommendations the system provided.
+        /// Return all recommendations provided by this system.
         /// </summary>
-        public SafeLinkedList<RecommendationList> AllRecommendations;
+        /// <returns>All recommendations provided by this system.</returns>
+        List<Recommendation> GetAllRecommendations() => database.GetSystemRecommendations(Name, Version);
         /// <summary>
-        /// All feedback given to the system.
+        /// Retrun all feedback relevant to provided recommendations.
         /// </summary>
-        public SafeLinkedList<Feedback> AllFeedback;
+        /// <param name="recommendations">Only return feedback of users for items that were recommended to them.</param>
+        /// <returns>All feedback relevant to provided recommendations.</returns>
+        List<Feedback> GetAllFeedback(List<Recommendation> recommendations)
+        {
+            var userItemMapping = new Dictionary<int, HashSet<int>>();
+            foreach (var rec in recommendations)
+                foreach (var recItem in rec.Items)
+                {
+                    if (!userItemMapping.ContainsKey(rec.UserId))
+                        userItemMapping.Add(rec.UserId, new HashSet<int>());
+
+                    userItemMapping[rec.UserId].Add(recItem.Item.Id);
+                }
+
+            var feedback = new List<Feedback>();
+            foreach (var userId in userItemMapping.Keys)
+                foreach (var itemId in userItemMapping[userId])
+                    feedback.AddRange(database.GetFeedback(userId, itemId));
+
+            return feedback;
+        }
+
+
+        Dictionary<UserItemPair, float?> GetPreferenceFromRecommendation(List<Recommendation> recoms)
+        {
+            if (Aggregator == null)
+                throw new Exception("Aggregator function not set.");
+
+            var prefs = new Dictionary<UserItemPair, float?>();
+
+            foreach (var rec in recoms)
+                foreach (var item in rec.Items)
+                {
+                    var uip = new UserItemPair(rec.UserId, item.Item.Id);
+                    if (!prefs.ContainsKey(uip))
+                    {
+                        float? preference = Aggregator(database.GetFeedback(rec.UserId, item.Item.Id));
+                        prefs.Add(uip, preference);
+                    }
+                }
+
+            return prefs;
+        }
+
+
+
         
         /// <summary>
         /// Creates new instance of tracker with specified parameters.
         /// </summary>
-        /// <param name="name">Name of the tracker.</param>
         /// <param name="sys">System which is being tracked.</param>
-        public RecommenderSystemTracker(string name, IRecommenderSystem sys)
+        /// <param name="db">Recommendation database.</param>
+        /// <param name="feedbackAdder">Method for adding feedback to database.</param>
+        public RecommenderSystemTracker(IRecommenderSystem sys, Database db, Action<Feedback> feedbackAdder)
         {
-            Name = name;
             system = sys;
-            AllRecommendations = new SafeLinkedList<RecommendationList>();
-            AllFeedback        = new SafeLinkedList<Feedback>();
+            database = db;
+            AddFeedbackToDatabase = feedbackAdder;
         }
 
         /// <summary>
@@ -59,21 +113,18 @@ namespace RecommenderFramework
         public void AddFeedback(List<Feedback> feed)
         {
             foreach (var f in feed)
-            {
-                AllFeedback.Add(f);
-            }
+                AddFeedbackToDatabase(f);
         }
 
 
 
         #region Recommendation
-        
         /// <inheritdoc />
-        public bool CanPredictForUser(User user) => system.CanPredictForUser(user);
+        public bool CanRecommendToUser(User user) => system.CanRecommendToUser(user);
         /// <inheritdoc />
-        public bool CanPredictForItem(Item item) => system.CanPredictForItem(item);
+        public bool CanRecommendItem  (Item item) => system.CanRecommendItem(item);
         /// <inheritdoc />
-        public bool CanPredictRating(User user, Item item) => system.CanPredictRating(user, item);
+        public bool CanPredictPreference(User user, Item item) => system.CanPredictPreference(user, item);
         
         /// <summary>
         /// Saves feedback provided by user and passes it to the system.
@@ -81,12 +132,12 @@ namespace RecommenderFramework
         /// <param name="feedback">Feedback from user.</param>
         public void HandleFeedback(Feedback feedback)
         {
-            AllFeedback.Add(feedback);
+            AddFeedbackToDatabase(feedback);
             system.HandleFeedback(feedback);
         }
 
         /// <inheritdoc />
-        public float GetExpectedRating(User user, Item item) => system.GetExpectedRating(user, item);
+        public float GetExpectedPreference(User user, Item item) => system.GetExpectedPreference(user, item);
         /// <summary>
         /// Gets ranking of items from system. Saves ranking with additional data for evaluation.
         /// </summary>
@@ -99,8 +150,8 @@ namespace RecommenderFramework
             var recommendation = system.GetRanking(user, fromItems);
             timer.Stop();
 
-            var newList = new RecommendationList(user.Id, recommendation, DateTime.Now, (int)timer.ElapsedMilliseconds);
-            AllRecommendations.Add(newList);
+            var recom = new Recommendation(user.Id, recommendation, DateTime.Now, (int)timer.ElapsedMilliseconds);
+            database.SaveSystemRecommendation(Name, Version, recom);
             return recommendation;
         }
         /// <summary>
@@ -116,74 +167,14 @@ namespace RecommenderFramework
             var recommendation = system.GetRecommendation(user, fromItems, count);
             timer.Stop();
 
-            var newList = new RecommendationList(user.Id, recommendation, DateTime.Now, (int)timer.ElapsedMilliseconds);
-            AllRecommendations.Add(newList);
+            var recom = new Recommendation(user.Id, recommendation, DateTime.Now, (int)timer.ElapsedMilliseconds);
+            database.SaveSystemRecommendation(Name, Version, recom);
             return recommendation;
         }
         #endregion
 
 
-
-        #region Manipulation
-        /// <summary>
-        /// Saves recommendations into a specified file.
-        /// </summary>
-        /// <param name="fileName">Name of the file to which recommendations should be saved.</param>
-        public void SaveRecommendations(string fileName)
-        {
-            using (StreamWriter writer = new StreamWriter(fileName))
-            {
-                writer.WriteLine(Name);
-
-                foreach (var rec in AllRecommendations.Values())
-                {
-                    Console.WriteLine(rec.UserId + "|" + rec.AtTime + "|" + rec.ResponseTimeMs);
-                    Console.WriteLine(rec.Items.Count);
-
-                    foreach (var item in rec.Items)
-                    {
-                        Console.WriteLine(item.Item.Id + ":" + item.ExpectedPreference);
-                    }
-                }
-            }
-        }
-        /// <summary>
-        /// Loads recommendations from a specified file.
-        /// </summary>
-        /// <param name="fileName">Name of the file from which recommendations should be loaded.</param>
-        public void LoadRecommendations(string fileName, Database data)
-        {
-            using (StreamReader reader = new StreamReader(fileName))
-            {
-                if (Name != reader.ReadLine()) throw new Exception("Recommender name doesn't match first line of file.");
-
-                string line;
-                while ((line = reader.ReadLine()) != null)
-                {
-                    var split = line.Split('|');
-                    var userId = int.Parse(split[0]);
-                    var atTime = DateTime.Parse(split[1]);
-                    var response = int.Parse(split[2]);
-                    int count = int.Parse(reader.ReadLine());
-
-                    var list = new List<RecommendedItem>();
-                    for (int i = 0; i < count; i++)
-                    {
-                        var item = reader.ReadLine().Split(':');
-                        var itemId = int.Parse(item[0]);
-                        var pref = float.Parse(item[1]);
-                        list.Add(new RecommendedItem() { Item = data.GetItem(itemId), ExpectedPreference = pref });
-                    }
-
-                    var recList = new RecommendationList(userId, list, atTime, response);
-                    AllRecommendations.Add(recList);
-                }
-            }
-        }
-        #endregion
-
-
-
+                     
         #region Evaluation
         /// <summary>
         /// Calculates mean absolute error of recommendations by tracked recommender.
@@ -191,8 +182,9 @@ namespace RecommenderFramework
         /// <returns>Mean absolute error of recommendations by tracked recommender.</returns>
         public double MAE()
         {
-            var pref = GetAllPreferences();
-            return Evaluation.MAE(AllRecommendations.Values(), pref);
+            var recs = GetAllRecommendations();
+            var pref = GetPreferenceFromRecommendation(recs);
+            return Evaluation.MAE(recs, pref);
         }
         /// <summary>
         /// Calculates root mean square error of recommendations by tracked recommender.
@@ -200,8 +192,9 @@ namespace RecommenderFramework
         /// <returns>Root mean square error of recommendations by tracked recommender.</returns>
         public double RMSE()
         {
-            var pref = GetAllPreferences();
-            return Evaluation.RMSE(AllRecommendations.Values(), pref);
+            var recs = GetAllRecommendations();
+            var pref = GetPreferenceFromRecommendation(recs);
+            return Evaluation.RMSE(recs, pref);
         }
 
         /// <summary>
@@ -211,7 +204,7 @@ namespace RecommenderFramework
         /// <returns>Average reciprocal hit rank of recommendations by tracked recommender.</returns>
         public double ARHR(Func<int, int, bool> IsItemRelevant)
         {
-            return Evaluation.ARHR(AllRecommendations.Values(), IsItemRelevant);
+            return Evaluation.MRR(GetAllRecommendations(), IsItemRelevant);
         }
 
         /// <summary>
@@ -221,8 +214,9 @@ namespace RecommenderFramework
         /// <returns>Average discounted cumulative gain of recommendations by tracked recommender.</returns>
         public double AverageDCG(int rankPosition)
         {
-            var pref = GetAllPreferences();
-            return Evaluation.AverageDCG(AllRecommendations.Values(), pref, rankPosition);
+            var recs = GetAllRecommendations();
+            var pref = GetPreferenceFromRecommendation(recs);
+            return Evaluation.AverageDCG(GetAllRecommendations(), pref, rankPosition);
         }
         /// <summary>
         /// Calculates the average normalized discounted cumulative gain of recommendations by tracked recommender.
@@ -231,8 +225,9 @@ namespace RecommenderFramework
         /// <returns>Average normalized discounted cumulative gain of recommendations by tracked recommender.</returns>
         public double AverageNDCG(int rankPosition)
         {
-            var pref = GetAllPreferences();
-            return Evaluation.AverageNDCG(AllRecommendations.Values(), pref, rankPosition);
+            var recs = GetAllRecommendations();
+            var pref = GetPreferenceFromRecommendation(recs);
+            return Evaluation.AverageNDCG(GetAllRecommendations(), pref, rankPosition);
         }
 
         /// <summary>
@@ -241,7 +236,9 @@ namespace RecommenderFramework
         /// <returns>Click through rate of recommendations by tracked recommender.</returns>
         public double CTR()
         {
-            return Evaluation.CTR(AllRecommendations.Values(), AllFeedback.Values());
+            var recs = GetAllRecommendations();
+            var feedback = GetAllFeedback(recs);
+            return Evaluation.CTR(recs, feedback);
         }
 
         /// <summary>
@@ -249,18 +246,18 @@ namespace RecommenderFramework
         /// </summary>
         /// <param name="users">List of all users.</param>
         /// <returns>Portion of users for which some rating can be predicted.</returns>
-        public double UserCoverage(List<User> users)
+        public double UserCoverage()
         {
-            return Evaluation.UserCoverage(users, system);
+            return Evaluation.UserCoverage(database.Users.ToList(), system);
         }
         /// <summary>
         /// Calculates what portion of items can the tracked recommender predict rating for.
         /// </summary>
         /// <param name="items">List of all items.</param>
         /// <returns>Portion of items for which some rating can be predicted.</returns>
-        public double ItemCoverage(List<Item> items)
+        public double ItemCoverage()
         {
-            return Evaluation.ItemCoverage(items, system);
+            return Evaluation.ItemCoverage(database.Items.ToList(), system);
         }
 
         /// <summary>
@@ -270,7 +267,7 @@ namespace RecommenderFramework
         /// <returns>Average diversity of a recommendation list by tracked recommender.</returns>
         public double AverageListDiversity(Func<Item, Item, double> difference)
         {
-            return Evaluation.AverageListDiversity(AllRecommendations.Values(), difference);
+            return Evaluation.Diversity(GetAllRecommendations(), difference);
         }
 
         /// <summary>
@@ -280,7 +277,7 @@ namespace RecommenderFramework
         /// <returns>Recall of recommendations by tracked recommender.</returns>
         public double Recall(Func<int, List<int>> GetRelevantItems)
         {
-            return Evaluation.Recall(AllRecommendations.Values(), GetRelevantItems);
+            return Evaluation.Recall(GetAllRecommendations(), GetRelevantItems);
         }
         /// <summary>
         /// Calculates the accuracy of recommendations by tracked recommender.
@@ -290,7 +287,7 @@ namespace RecommenderFramework
         /// <returns>Accuracy of recommendations by tracked recommender.</returns>
         public double Accuracy(Func<int, List<int>> GetRelevantItems, int numberOfItems)
         {
-            return Evaluation.Accuracy(AllRecommendations.Values(), GetRelevantItems, numberOfItems);
+            return Evaluation.Accuracy(GetAllRecommendations(), GetRelevantItems, numberOfItems);
         }
         /// <summary>
         /// Calculates the precision of recommendations by tracked recommender.
@@ -299,7 +296,7 @@ namespace RecommenderFramework
         /// <returns>Precision of recommendations by tracked recommender.</returns>
         public double Precision(Func<int, int, bool> IsItemRelevant)
         {
-            return Evaluation.Precision(AllRecommendations.Values(), IsItemRelevant);
+            return Evaluation.Precision(GetAllRecommendations(), IsItemRelevant);
         }
         /// <summary>
         /// Calculates the mean average precision of recommendations by tracked recommender.
@@ -308,7 +305,7 @@ namespace RecommenderFramework
         /// <returns>Mean average precision of recommendations by tracked recommender.</returns>
         public double MAP(Func<int, int, bool> IsItemRelevant)
         {
-            return Evaluation.MAP(AllRecommendations.Values(), IsItemRelevant);
+            return Evaluation.MAP(GetAllRecommendations(), IsItemRelevant);
         }
 
         /// <summary>
@@ -317,7 +314,7 @@ namespace RecommenderFramework
         /// <returns>Mean response time in miliseconds.</returns>
         public double MeanResponseTime()
         {
-            return Evaluation.MeanResponseTime(AllRecommendations.Values());
+            return Evaluation.MeanResponseTime(GetAllRecommendations());
         }
         /// <summary>
         /// Caclulates the median response time of recommendations by tracked recommender.
@@ -325,88 +322,7 @@ namespace RecommenderFramework
         /// <returns>Median response time in miliseconds.</returns>
         public double MedianResponseTime()
         {
-            return Evaluation.MedianResponseTime(AllRecommendations.Values());
-        }
-
-
-
-        /// <summary>
-        /// Returns preferences from feedback saved in tracker.
-        /// </summary>
-        /// <param name="agg">Function used for aggregating when implicit feedback is present.</param>
-        /// <returns>List containing users preference for given item.</returns>
-        List<UserItemPreference> GetAllPreferences()
-        {
-            bool explicitOnly = true;
-            var feed = AllFeedback.Values();
-            foreach (var item in feed)
-            {
-                if (item is ImplicitFeedback)
-                {
-                    explicitOnly = false;
-                    break;
-                }
-            }
-
-            if (explicitOnly) return PreferenceFromExplicit(feed);
-            else
-            {
-                if (Aggregator == null) throw new Exception("Tracker contains implicit feedback but no aggregator was provided.");
-                return PreferenceFromImplicit(feed, Aggregator);
-            }
-        }
-        /// <summary>
-        /// Returns preferences from feedback when it only contains explicit feedback.
-        /// </summary>
-        /// <param name="feed">Feedback from which preference is extracted.</param>
-        /// <returns>List containing users preference for given item.</returns>
-        List<UserItemPreference> PreferenceFromExplicit(List<Feedback> feed)
-        {
-            var pref = new Dictionary<UserItemPair, float>();
-            foreach (var item in feed)
-            {
-                var expl = (ExplicitFeedback)item;
-                var ui = new UserItemPair(expl.UserId, expl.ItemId);
-                if (pref.ContainsKey(ui)) pref[ui] = expl.Preference;
-                else pref.Add(ui, expl.Preference);
-            }
-
-            var preference = new List<UserItemPreference>();
-            foreach (var item in pref)
-            {
-                preference.Add(new UserItemPreference(item.Key, item.Value));
-            }
-
-            return preference;
-        }
-        /// <summary>
-        /// Returns preferences from feedback when it also contains implicit feedback.
-        /// </summary>
-        /// <param name="feed">Feedback from which preference is extracted.</param>
-        /// <param name="aggregate">Function used for aggregating users feedback.</param>
-        /// <returns>List containing users preference for given item.</returns>
-        List<UserItemPreference> PreferenceFromImplicit(List<Feedback> feed, AggregationFunction aggregate)
-        {
-            var forUserAndItem = new Dictionary<UserItemPair, List<Feedback>>();
-            foreach (var item in feed)
-            {
-                var uip = new UserItemPair(item.UserId, item.ItemId);
-                if (!forUserAndItem.TryGetValue(uip, out List<Feedback> userItemFeed))
-                {
-                    userItemFeed = new List<Feedback>();
-                    forUserAndItem.Add(uip, userItemFeed);
-                }
-
-                userItemFeed.Add(item);
-            }
-
-            var preference = new List<UserItemPreference>();
-            foreach (var uip in forUserAndItem)
-            {
-                var prefForThisUserItemPair = aggregate(uip.Value);
-                if (prefForThisUserItemPair != null) preference.Add(new UserItemPreference(uip.Key, (float)prefForThisUserItemPair));
-            }
-            return preference;
+            return Evaluation.MedianResponseTime(GetAllRecommendations());
         }
         #endregion
     }

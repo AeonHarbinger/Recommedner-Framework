@@ -9,12 +9,11 @@ namespace RecommenderFramework
     /// <summary>
     /// Represents an item in recommender system.
     /// </summary>
-    [Serializable]
-    public class Item
+    public abstract class Item
     {
         /// <summary>
         /// Unique identification of the item.
         /// </summary>
-        public int Id;
+        public abstract int Id { get; set; }
     }
 }

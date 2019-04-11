@@ -8,19 +8,10 @@ using System.Threading.Tasks;
 namespace RecommenderFramework
 {
     /// <summary>
-    /// Represents functionality of a recommender system that allows us to control it.
+    /// Represents functionality of a recommender system that allows outside control of it.
     /// </summary>
     public interface IManagedRecommenderSystem : IRecommenderSystem
     {
-        /// <summary>
-        /// Name of the system.
-        /// </summary>
-        string Name { get; }
-        /// <summary>
-        /// Version of the system.
-        /// </summary>
-        string Version { get; }
-
         /// <summary>
         /// Gets value of given parameter.
         /// </summary>
@@ -36,17 +27,20 @@ namespace RecommenderFramework
         /// <summary>
         /// Returns all parameters with their values.
         /// </summary>
-        /// <returns>List of pairs containing parameter name and parameter value.</returns>
+        /// <returns>List of pairs containing parameter name and value.</returns>
         List<KeyValuePair<string, object>> GetParams();
 
+        /// <summary>
+        /// Performs training on the system.
+        /// </summary>
         void Train();
         /// <summary>
-        /// Saves recommender system.
+        /// Saves the recommender system.
         /// </summary>
         /// <param name="fileName">Name of the file where the system should be saved.</param>
         void SaveModel(string fileName);
         /// <summary>
-        /// Loads recommender system.
+        /// Loads the recommender system.
         /// </summary>
         /// <param name="fileName">Name of the file from which system should be loaded.</param>
         void LoadModel(string fileName);
