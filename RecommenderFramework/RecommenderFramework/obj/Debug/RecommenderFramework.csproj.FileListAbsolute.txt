@@ -1,0 +1,12 @@
+C:\Users\Ondra\Disk Google\Shared projects\C#\Rocnikovy projekt - kod\RecommenderFramework\RecommenderFramework\bin\Debug\RecommenderFramework.dll
+C:\Users\Ondra\Disk Google\Shared projects\C#\Rocnikovy projekt - kod\RecommenderFramework\RecommenderFramework\bin\Debug\RecommenderFramework.pdb
+C:\Users\Ondra\Disk Google\Shared projects\C#\Rocnikovy projekt - kod\RecommenderFramework\RecommenderFramework\obj\Debug\RecommenderFramework.csprojAssemblyReference.cache
+C:\Users\Ondra\Disk Google\Shared projects\C#\Rocnikovy projekt - kod\RecommenderFramework\RecommenderFramework\obj\Debug\RecommenderFramework.csproj.CoreCompileInputs.cache
+C:\Users\Ondra\Disk Google\Shared projects\C#\Rocnikovy projekt - kod\RecommenderFramework\RecommenderFramework\obj\Debug\RecommenderFramework.dll
+C:\Users\Ondra\Disk Google\Shared projects\C#\Rocnikovy projekt - kod\RecommenderFramework\RecommenderFramework\obj\Debug\RecommenderFramework.pdb
+C:\Users\Ondra\Disk Google\UK\BP\code\RecommenderFramework\RecommenderFramework\bin\Debug\RecommenderFramework.dll
+C:\Users\Ondra\Disk Google\UK\BP\code\RecommenderFramework\RecommenderFramework\bin\Debug\RecommenderFramework.pdb
+C:\Users\Ondra\Disk Google\UK\BP\code\RecommenderFramework\RecommenderFramework\obj\Debug\RecommenderFramework.csprojAssemblyReference.cache
+C:\Users\Ondra\Disk Google\UK\BP\code\RecommenderFramework\RecommenderFramework\obj\Debug\RecommenderFramework.csproj.CoreCompileInputs.cache
+C:\Users\Ondra\Disk Google\UK\BP\code\RecommenderFramework\RecommenderFramework\obj\Debug\RecommenderFramework.dll
+C:\Users\Ondra\Disk Google\UK\BP\code\RecommenderFramework\RecommenderFramework\obj\Debug\RecommenderFramework.pdb
